@@ -14,7 +14,7 @@ let alertRequests = {};
 
 let userLastCommandTime = {};
 
-const COMMAND_TIMEOUT = 5 * 60 * 1000; // 5 minutes in milliseconds
+const COMMAND_TIMEOUT = 1 * 60 * 1000; // 1 minutes in milliseconds
 
 function addAlertRequest(chatId, crypto, change, timeframe) {
     if (!alertRequests[chatId]) {
