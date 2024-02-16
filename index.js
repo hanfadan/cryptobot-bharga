@@ -16,11 +16,21 @@ let userLastCommandTime = {};
 
 const COMMAND_TIMEOUT = 1 * 60 * 1000; // 1 minutes in milliseconds
 
-function addAlertRequest(chatId, crypto, change, timeframe) {
-    if (!alertRequests[chatId]) {
-        alertRequests[chatId] = [];
-    }
-    alertRequests[chatId].push({ crypto, change, timeframe });
+async function addAlertRequest(chatId, crypto, change, timeframe) {
+  if (!alertRequests[chatId]) {
+      alertRequests[chatId] = [];
+      setInterval(() => checkAlerts(chatId), timeframe * 60 * 1000);
+  }
+  try {
+      // Fetch the initial price
+      let response = await axios.get(`https://api.coingecko.com/api/v3/simple/price?ids=${crypto}&vs_currencies=usd`);
+      let initialPrice = response.data[crypto].usd;
+
+      alertRequests[chatId].push({ crypto, change, timeframe, initialPrice });
+  } catch (error) {
+      console.error('Error setting alert:', error);
+      // Optionally handle errors, like notifying the user
+  }
 }
 
 function updateChatData(chatId, data) {
@@ -102,31 +112,31 @@ function updateChatData(chatId, data) {
     return true;
 }
 
-  async function checkAlerts() {
-    for (const chatId in alertRequests) {
-        for (let i = 0; i < alertRequests[chatId].length; i++) {
-            let alert = alertRequests[chatId][i];
-            try {
-                // Fetch the current price
-                let response = await axios.get(`https://api.coingecko.com/api/v3/simple/price?ids=${alert.crypto}&vs_currencies=usd`);
-                let currentPrice = response.data[alert.crypto].usd;
+async function checkAlerts(chatId) {
+  if (!alertRequests[chatId]) return;
 
-                // Calculate the percentage change
-                let change = ((currentPrice - alert.initialPrice) / alert.initialPrice) * 100;
+  for (let i = 0; i < alertRequests[chatId].length; i++) {
+      let alert = alertRequests[chatId][i];
+      try {
+          // Fetch the current price
+          let response = await axios.get(`https://api.coingecko.com/api/v3/simple/price?ids=${alert.crypto}&vs_currencies=usd`);
+          let currentPrice = response.data[alert.crypto].usd;
 
-                // Check if the change meets the alert criteria
-                if (Math.abs(change) >= alert.change) {
-                    bot.sendMessage(chatId, `Alert for ${alert.crypto}: Price has changed by ${change.toFixed(2)}% (threshold: ${alert.change}%)`);
-                    // Remove the alert after triggering
-                    alertRequests[chatId].splice(i, 1);
-                    i--; // Adjust the index since an element was removed
-                }
-            } catch (error) {
-                console.error('Error checking alerts:', error);
-                // Optionally handle errors, like notifying the user
-            }
-        }
-    }
+          // Calculate the percentage change
+          let change = ((currentPrice - alert.initialPrice) / alert.initialPrice) * 100;
+
+          // Check if the change meets the alert criteria
+          if (Math.abs(change) >= alert.change) {
+              bot.sendMessage(chatId, `Alert for ${alert.crypto}: Price has changed by ${change.toFixed(2)}% (threshold: ${alert.change}%)`);
+              // Remove the alert after triggering
+              alertRequests[chatId].splice(i, 1);
+              i--; // Adjust the index since an element was removed
+          }
+      } catch (error) {
+          console.error('Error checking alerts:', error);
+          // Optionally handle errors, like notifying the user
+      }
+  }
 }
 
   
