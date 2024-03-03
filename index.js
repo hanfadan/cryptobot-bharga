@@ -1,20 +1,57 @@
 require('dotenv').config();
 const TelegramBot = require('node-telegram-bot-api');
 const axios = require('axios');
+const { TelegramClient } = require('telegram');
+const { StringSession } = require('telegram/sessions');
+const { NewMessage } = require('telegram/events');
 
-// Replace the value below with the Telegram token you receive from @BotFather
 const token = process.env.TELEGRAM_BOT_TOKEN;
-
-// Create a bot that uses 'polling' to fetch new updates
 const bot = new TelegramBot(token, { polling: true });
 
 let chatData = {};
-
 let alertRequests = {};
+let subscribers = {}; // Tracks user subscriptions
 
-let userLastCommandTime = {};
+const apiId = parseInt(process.env.API_ID, 10);
+const apiHash = process.env.API_HASH;
+const userSessionString = process.env.USER_SESSION_STRING;
 
-const COMMAND_TIMEOUT = 1 * 60 * 1000; // 1 minutes in milliseconds
+const userClient = new TelegramClient(new StringSession(userSessionString), apiId, apiHash, {});
+
+async function startUserClient() {
+  try {
+    await userClient.start();
+    console.log('User client started.');
+
+    // Ensure the target channel ID is an integer
+    const targetChannelId = parseInt(process.env.SOLANA_NEW_LIST_CHANNEL, 10);
+
+    console.log(`Listening for messages from Channel ID: ${targetChannelId}`);
+
+    userClient.addEventHandler(async (event) => {
+        const message = event.message;
+        let messageChatId = message.chatId;
+
+        console.log(`Received message from chat ID: ${messageChatId}`);
+
+        // Ensure both IDs are integers for comparison
+        if (message && parseInt(messageChatId, 10) === targetChannelId) {
+            console.log(`Forwarding message from the target channel: ${message.message}`);
+
+            // Forward the message to all subscribed users
+            Object.keys(subscribers).forEach(chatId => {
+                if (subscribers[chatId]) {
+                    bot.sendMessage(chatId, `Forwarded message: ${message.message}`);
+                }
+            });
+        }
+    }, new NewMessage({}));
+  } catch (error) {
+    console.error('Failed to start user client:', error);
+  }
+}
+
+
 
 async function addAlertRequest(chatId, crypto, change, timeframe) {
   if (!alertRequests[chatId]) {
@@ -104,14 +141,6 @@ function updateChatData(chatId, data) {
     return priceOnDate ? priceOnDate.toFixed(2) : 'Data not available';
   }
 
-  function canExecuteCommand(chatId, currentTime) {
-    if (userLastCommandTime[chatId] && currentTime - userLastCommandTime[chatId] < COMMAND_TIMEOUT) {
-        return false;
-    }
-    userLastCommandTime[chatId] = currentTime;
-    return true;
-}
-
 async function checkAlerts(chatId) {
   if (!alertRequests[chatId]) return;
 
@@ -158,23 +187,10 @@ async function checkAlerts(chatId) {
       bot.sendMessage(chatId, 'You are on the first page.');
     }
   });
-  
-// Listen for any kind of message
-// bot.on('message', (msg) => {
-//   const chatId = msg.chat.id;
-//   // Send a message back to the user
-//   bot.sendMessage(chatId, 'Hello! I am your crypto tracking bot.');
-// });
 
 bot.onText(/\/price (.+)/, (msg, match) => {
     const chatId = msg.chat.id;
     const resp = match[1]; // the captured "crypto" after /price command
-    const currentTime = new Date().getTime();
-
-    if (!canExecuteCommand(chatId, currentTime)) {
-        bot.sendMessage(chatId, "Please wait 5 minutes before sending another command.");
-        return;
-    }
   
     axios.get(`https://api.coingecko.com/api/v3/simple/price?ids=${resp}&vs_currencies=usd`)
       .then(response => {
@@ -203,12 +219,6 @@ bot.onText(/\/start/, (msg) => {
   bot.onText(/\/priceexchanges (.+)/, (msg, match) => {
     const chatId = msg.chat.id;
     const crypto = match[1].toLowerCase();
-    const currentTime = new Date().getTime();
-
-    if (!canExecuteCommand(chatId, currentTime)) {
-        bot.sendMessage(chatId, "Please wait 5 minutes before sending another command.");
-        return;
-    }
   
     axios.get(`https://api.coingecko.com/api/v3/coins/${crypto}`)
       .then(response => {
@@ -227,12 +237,6 @@ bot.onText(/\/start/, (msg) => {
   bot.onText(/\/pricehistory (.+)/, (msg, match) => {
     const chatId = msg.chat.id;
     const crypto = match[1].toLowerCase();
-    const currentTime = new Date().getTime();
-
-    if (!canExecuteCommand(chatId, currentTime)) {
-        bot.sendMessage(chatId, "Please wait 5 minutes before sending another command.");
-        return;
-    }
   
     axios.get(`https://api.coingecko.com/api/v3/coins/${crypto}/market_chart?vs_currency=usd&days=max`)
       .then(response => {
@@ -251,16 +255,34 @@ bot.onText(/\/start/, (msg) => {
     const crypto = match[1].toLowerCase();
     const change = parseFloat(match[2]);
     const timeframe = parseInt(match[3]); // Time in minutes
-    const currentTime = new Date().getTime();
-
-    if (!canExecuteCommand(chatId, currentTime)) {
-        bot.sendMessage(chatId, "Please wait 5 minutes before sending another command.");
-        return;
-    }
 
     addAlertRequest(chatId, crypto, change, timeframe);
     bot.sendMessage(chatId, `Alert set for ${crypto}: ${change}% change within ${timeframe} minutes.`);
 });
 
-  
-  
+// Command to subscribe to channel messages
+bot.onText(/\/subscribe/, (msg) => {
+    const chatId = msg.chat.id;
+    // Add the user's chatId to the subscribers object
+    subscribers[chatId] = true;
+    bot.sendMessage(chatId, "You've subscribed to receive updates from the channel.");
+});
+
+// Command to unsubscribe from channel messages
+bot.onText(/\/unsubscribe/, (msg) => {
+    const chatId = msg.chat.id;
+    // Remove the user's chatId from the subscribers object
+    delete subscribers[chatId];
+    bot.sendMessage(chatId, "You've unsubscribed from receiving updates from the channel.");
+});
+
+startUserClient().catch(console.error);
+
+// Global error handlers
+process.on('uncaughtException', error => {
+    console.error('Uncaught Exception:', error);
+});
+
+process.on('unhandledRejection', error => {
+    console.error('Unhandled Rejection:', error);
+});  
