@@ -10,7 +10,6 @@ const token = process.env.TELEGRAM_BOT_TOKEN;
 const apiId = parseInt(process.env.API_ID, 10);
 const apiHash = process.env.API_HASH;
 const userSessionString = process.env.USER_SESSION_STRING;
-const targetChannelId = parseInt(process.env.SOLANA_NEW_LIST_CHANNEL, 10);
 
 // Global variables
 let chatData = {};
@@ -29,34 +28,29 @@ async function startUserClient() {
       await userClient.start();
       console.log('User client started.');
 
-      // Listen for new messages from the specified channel
+      // Listen for new messages from any chat
       userClient.addEventHandler(messageHandler, new NewMessage({}));
 
-      console.log(`Listening for messages from Channel ID: ${targetChannelId}`);
+      console.log('Listening for messages from all chats.');
   } catch (error) {
       console.error('Failed to start user client:', error);
   }
 }
 
-// Handle new messages
+// Handle new messages from any chat
 async function messageHandler(event) {
   const message = event.message;
-  let messageChatId = message.chatId;
 
-  if (message && parseInt(messageChatId, 10) === targetChannelId) {
-      console.log(`Forwarding message from the target channel: ${message.message}`);
-      // Forward the message to all subscribed users
-      Object.keys(subscribers).forEach(chatId => {
-          if (subscribers[chatId]) {
-              bot.sendMessage(chatId, `Forwarded message: ${message.message}`).catch(error => {
-                  console.error('Error sending message:', error);
-              });
-          }
-      });
-  }
+  console.log(`Forwarding message: ${message.message}`);
+  // Forward the message to all subscribed users
+  Object.keys(subscribers).forEach(chatId => {
+      if (subscribers[chatId]) {
+          bot.sendMessage(chatId, `${message.message}`).catch(error => {
+              console.error('Error sending message:', error);
+          });
+      }
+  });
 }
-
-
 
 async function addAlertRequest(chatId, crypto, change, timeframe) {
   if (!alertRequests[chatId]) {
