@@ -5,49 +5,54 @@ const { TelegramClient } = require('telegram');
 const { StringSession } = require('telegram/sessions');
 const { NewMessage } = require('telegram/events');
 
+// Environment variables
 const token = process.env.TELEGRAM_BOT_TOKEN;
-const bot = new TelegramBot(token, { polling: true });
-
-let chatData = {};
-let alertRequests = {};
-let subscribers = {}; // Tracks user subscriptions
-
 const apiId = parseInt(process.env.API_ID, 10);
 const apiHash = process.env.API_HASH;
 const userSessionString = process.env.USER_SESSION_STRING;
+const targetChannelId = parseInt(process.env.SOLANA_NEW_LIST_CHANNEL, 10);
 
+// Global variables
+let chatData = {};
+let alertRequests = {};
+let subscribers = {};
+
+// Telegram Bot Client
+const bot = new TelegramBot(token, { polling: true });
+
+// Telegram User Client (for listening to channel messages)
 const userClient = new TelegramClient(new StringSession(userSessionString), apiId, apiHash, {});
 
+// Start User Client
 async function startUserClient() {
   try {
-    await userClient.start();
-    console.log('User client started.');
+      await userClient.start();
+      console.log('User client started.');
 
-    // Ensure the target channel ID is an integer
-    const targetChannelId = parseInt(process.env.SOLANA_NEW_LIST_CHANNEL, 10);
+      // Listen for new messages from the specified channel
+      userClient.addEventHandler(messageHandler, new NewMessage({}));
 
-    console.log(`Listening for messages from Channel ID: ${targetChannelId}`);
-
-    userClient.addEventHandler(async (event) => {
-        const message = event.message;
-        let messageChatId = message.chatId;
-
-        console.log(`Received message from chat ID: ${messageChatId}`);
-
-        // Ensure both IDs are integers for comparison
-        if (message && parseInt(messageChatId, 10) === targetChannelId) {
-            console.log(`Forwarding message from the target channel: ${message.message}`);
-
-            // Forward the message to all subscribed users
-            Object.keys(subscribers).forEach(chatId => {
-                if (subscribers[chatId]) {
-                    bot.sendMessage(chatId, `Forwarded message: ${message.message}`);
-                }
-            });
-        }
-    }, new NewMessage({}));
+      console.log(`Listening for messages from Channel ID: ${targetChannelId}`);
   } catch (error) {
-    console.error('Failed to start user client:', error);
+      console.error('Failed to start user client:', error);
+  }
+}
+
+// Handle new messages
+async function messageHandler(event) {
+  const message = event.message;
+  let messageChatId = message.chatId;
+
+  if (message && parseInt(messageChatId, 10) === targetChannelId) {
+      console.log(`Forwarding message from the target channel: ${message.message}`);
+      // Forward the message to all subscribed users
+      Object.keys(subscribers).forEach(chatId => {
+          if (subscribers[chatId]) {
+              bot.sendMessage(chatId, `Forwarded message: ${message.message}`).catch(error => {
+                  console.error('Error sending message:', error);
+              });
+          }
+      });
   }
 }
 
@@ -210,10 +215,22 @@ bot.onText(/\/start/, (msg) => {
   
   // Matches "/help"
   bot.onText(/\/help/, (msg) => {
-    bot.sendMessage(msg.chat.id, "Here's how to use me:\n- /start to start the bot\n- /help to get this message\n- /price [crypto] to get the current price of a cryptocurrency\n- /setalert [crypto] [change%] [time in minutes] to set a price alert\n- /pricehistory [crypto] to get the price history\n- /priceexchanges [crypto] to get the price on different exchanges");
+    const helpMessage = `
+    Welcome to the Crypto Tracker Bot! Here's how you can use me:
+    - /start: Start the bot and see this message.
+    - /price [crypto]: Get the current price of a cryptocurrency. Example: /price bitcoin
+    - /setalert [crypto] [change%] [time in minutes]: Set a price alert for a cryptocurrency. Example: /setalert bitcoin 5 60
+    - /pricehistory [crypto]: Get the price history of a cryptocurrency. Example: /pricehistory bitcoin
+    - /priceexchanges [crypto]: Get the price of a cryptocurrency on different exchanges. Example: /priceexchanges bitcoin
+    - /subscribe: Subscribe to receive updates from the channel. You'll receive forwarded messages from our curated channel.
+    - /unsubscribe: Unsubscribe from receiving updates from the channel.
+    Each command has its purpose, and you can use them to track cryptocurrencies effectively. If you have any questions or suggestions, please feel free to reach out.
+    `;
+    bot.sendMessage(msg.chat.id, helpMessage).catch(error => {
+        console.error('Error sending help message:', error);
+    });
   });
   
-
   const ITEMS_PER_PAGE = 5; // You can adjust this number based on your preference
 
   bot.onText(/\/priceexchanges (.+)/, (msg, match) => {
@@ -260,29 +277,32 @@ bot.onText(/\/start/, (msg) => {
     bot.sendMessage(chatId, `Alert set for ${crypto}: ${change}% change within ${timeframe} minutes.`);
 });
 
-// Command to subscribe to channel messages
+// Subscribe command
 bot.onText(/\/subscribe/, (msg) => {
-    const chatId = msg.chat.id;
-    // Add the user's chatId to the subscribers object
-    subscribers[chatId] = true;
-    bot.sendMessage(chatId, "You've subscribed to receive updates from the channel.");
+  const chatId = msg.chat.id;
+  subscribers[chatId] = true;
+  bot.sendMessage(chatId, "You've subscribed to receive updates from the channel.").catch(error => {
+      console.error('Error sending message:', error);
+  });
 });
 
-// Command to unsubscribe from channel messages
+// Unsubscribe command
 bot.onText(/\/unsubscribe/, (msg) => {
-    const chatId = msg.chat.id;
-    // Remove the user's chatId from the subscribers object
-    delete subscribers[chatId];
-    bot.sendMessage(chatId, "You've unsubscribed from receiving updates from the channel.");
+  const chatId = msg.chat.id;
+  delete subscribers[chatId];
+  bot.sendMessage(chatId, "You've unsubscribed from receiving updates from the channel.").catch(error => {
+      console.error('Error sending message:', error);
+  });
 });
 
+// Start the user client
 startUserClient().catch(console.error);
 
-// Global error handlers
+// Global error handlers to improve stability
 process.on('uncaughtException', error => {
     console.error('Uncaught Exception:', error);
 });
 
 process.on('unhandledRejection', error => {
     console.error('Unhandled Rejection:', error);
-});  
+});
