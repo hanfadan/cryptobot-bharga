@@ -40,26 +40,14 @@ async function startUserClient() {
 // Handle new messages from any chat
 async function messageHandler(event) {
   let message = event.message;
-
-  if (message && message.message) {
-    // Assuming the ad always starts with "ads" or another consistent marker, you can split the message and remove the ad part
-    let adStartIndex = message.message.indexOf("ads");
-    let formattedMessage = message.message;
-
-    // If the ad start index is found, trim the message to exclude the ad
-    if (adStartIndex !== -1) {
-      formattedMessage = message.message.substring(0, adStartIndex).trim();
-    }
-
     // Forward the processed message to all subscribed users
     Object.keys(subscribers).forEach(chatId => {
         if (subscribers[chatId]) {
-            bot.sendMessage(chatId, formattedMessage, { parse_mode: "HTML" }).catch(error => {
+            bot.sendMessage(chatId, message, { parse_mode: "HTML" }).catch(error => {
                 console.error('Error sending message:', error);
             });
         }
     });
-  }
 }
 
 async function addAlertRequest(chatId, crypto, change, timeframe) {
